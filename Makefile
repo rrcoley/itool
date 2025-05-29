@@ -2,22 +2,27 @@
 #LDFLAGS = `pkg-config --libs sqlite3 openssl`
 
 CC 	= gcc
-CFLAGS 	= -Wall -Wextra -O2 -I/opt/homebrew/Cellar/openssl@3/3.5.0/include
-LDFLAGS = -lsqlite3 -L/opt/homebrew/Cellar/openssl@3/3.5.0/lib -lssl -lcrypto
+CFLAGS 	= -g -Wall -Wextra -O2 -I/opt/homebrew/Cellar/openssl@3/3.5.0/include
+LDFLAGS = -g -lsqlite3 -L/opt/homebrew/Cellar/openssl@3/3.5.0/lib -lssl -lcrypto
 
-OBJS 	= main.o registry.o
-BIN	= Itool
+HDRS	= hash.h itool.h registry.h
+SRCS	= main.c registry.c hash.c
+OBJS 	= $(SRCS:.c=.o)
+BIN	= itool
 
 all: $(BIN)
 
-Itool: $(OBJS)
+itool: $(OBJS)
 	$(CC) -o $@ $(OBJS) $(LDFLAGS)
 
+main.c: itool.h
+registry.c: registry.h
+
 clobber: clean
-	-rm -f $(BIN)
+	-rm -f $(BIN) itool.zip
 
 clean:
 	-rm -f $(OBJS)
 
 zip:
-	zip
+	zip itool.zip $(SRCS) $(HDRS) Makefile
