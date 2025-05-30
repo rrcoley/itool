@@ -70,9 +70,35 @@ const char *InsertMark_sql = "INSERT OR REPLACE INTO mark (path) VALUES (?);";
 const char *CheckFiles_sql = "SELECT * FROM files WHERE path = ?;";
 const char *MissingFiles_sql = "SELECT path FROM files WHERE path NOT IN (SELECT path FROM mark);";
 
-enum mode_t { GENERATE, COMPARE };
+#define Mode	0
+#define Opts	1
+
+struct
+{
+	int	var;
+	char 	*name;
+	int 	flag;
+} options[] = 
+{
+	{ Mode, "compare", COMPARE },
+	{ Opts, "hash",    D_HASH },
+	{ Opts, "size",    D_SIZE },
+	{ Opts, "link",    D_LINK },
+	{ Opts, "uid",     D_UID },
+	{ Opts, "gid",     D_GID },
+	{ Opts, "ctime",   D_CTIME },
+	{ Opts, "mtime",   D_MTIME },
+	{ Opts, "atime",   D_ATIME },
+	{ Opts, "mode",    D_MODE },
+	{ Opts, "xattr",   D_XATTR },
+	{ Opts, "acl",     D_ACL },
+	{ Opts, "dev",     D_DEV },
+	{ 0,    0,         D_NONE }
+};
 
 mode_t	mode = GENERATE;
+ulong_t opts = (D_HASH|D_SIZE|D_LINK|D_UID|D_GID|D_CTIME|D_MTIME|D_MODE|D_XATTR|D_ACL|D_DEV);
+
 char	*dbpath;
 char	*startdir;
 
@@ -168,14 +194,41 @@ main(int argc, char **argv)
 
 	flags = SQLITE_OPEN_READWRITE;
 
-	if (argc > 3)
-	{
-		if (strcmp(argv[3], "--compare") == 0) 
-			mode = COMPARE;
-		else
+	for(int i=3;i<argc;i++)
+	{ 
+		char *name=argv[i];
+
+		int set=0;
+		if (strncmp(name,"--",2) == 0) name+=2;
+		if (strncmp(name,"no",2) == 0)
 		{
-			printf("Error: Unknown argument %s\n",argv[3]);	
-			exit(1);
+			name+=2;
+			set=1;
+		}
+		int found=0;
+		for(int j=0; options[j].name; j++)
+		{
+			if (strcmp(name, options[j].name) == 0)
+			{
+				found=1;
+				switch(options[j].var)
+				{
+				case Mode:
+					mode = options[j].flag;
+					break;
+				case Opts:
+					if (set == 0) 
+						opts |= options[j].flag;
+					else 
+						opts &= ~options[j].flag;
+					break;
+				}
+			}
+		}
+		if (found==0)
+		{
+			printf("Unknown option [%s]\n",argv[i]);
+			exit(0);
 		}
 	}
 
@@ -353,18 +406,19 @@ scan_directory(const char *dirpath)
 
 				char	*cbuf=0;
 
-				if (db_size != st.st_size) join(&cbuf,"Size: %lld->%lld",db_size,st.st_size); 
-				if (strcmp(db_hash,hex)) join(&cbuf,"Hash: %s->%s",db_hash,hex);
-				if (strcmp(db_link,symlink_target)) join(&cbuf,"Symlink: %s->%s",db_link,symlink_target); 
-				if (db_uid != st.st_uid) join(&cbuf,"UID: %d->%d",db_uid,st.st_uid);
-				if (db_gid != st.st_gid) join(&cbuf,"GID: %d->%d",db_gid,st.st_gid);
-				if (db_ctime != st.st_ctime) join(&cbuf,"Created: %ld->%ld",db_ctime,st.st_ctime);
-				if (db_mtime != st.st_mtime) join(&cbuf,"Modified: %ld->%ld",db_mtime,st.st_mtime);
-				if (db_atime != st.st_atime) join(&cbuf,"Access: %ld->%ld",db_atime,st.st_atime);
-				if (MODE(db_mode) != MODE(st.st_mode)) join(&cbuf,"Mode: %ho->%ho",MODE(db_mode),MODE(st.st_mode));
-				if (strcmp(db_xattr, xattr_str)) join(&cbuf,"Xattrs: %s->%s",db_xattr,xattr_str);
-				if (strcmp(db_acl, acl_str)) join(&cbuf,"ACL: %s->%s",db_acl,acl_str);
-				if (db_dev != st.st_dev) join(&cbuf,"Device: %d->%d",db_dev,st.st_dev);
+
+				if (opts&D_SIZE && db_size != st.st_size) join(&cbuf,"Size: %lld->%lld",db_size,st.st_size); 
+				if (opts&D_HASH && strcmp(db_hash,hex)) join(&cbuf,"Hash: %s->%s",db_hash,hex);
+				if (opts&D_LINK && strcmp(db_link,symlink_target)) join(&cbuf,"Symlink: %s->%s",db_link,symlink_target); 
+				if (opts&D_UID && db_uid != st.st_uid) join(&cbuf,"UID: %d->%d",db_uid,st.st_uid);
+				if (opts&D_GID && db_gid != st.st_gid) join(&cbuf,"GID: %d->%d",db_gid,st.st_gid);
+				if (opts&D_CTIME && db_ctime != st.st_ctime) join(&cbuf,"Created: %ld->%ld",db_ctime,st.st_ctime);
+				if (opts&D_MTIME && db_mtime != st.st_mtime) join(&cbuf,"Modified: %ld->%ld",db_mtime,st.st_mtime);
+				if (opts&D_ATIME && db_atime != st.st_atime) join(&cbuf,"Access: %ld->%ld",db_atime,st.st_atime);
+				if (opts&D_MODE && MODE(db_mode) != MODE(st.st_mode)) join(&cbuf,"Mode: %ho->%ho",MODE(db_mode),MODE(st.st_mode));
+				if (opts&D_XATTR && strcmp(db_xattr, xattr_str)) join(&cbuf,"Xattrs: %s->%s",db_xattr,xattr_str);
+				if (opts&D_ACL && strcmp(db_acl, acl_str)) join(&cbuf,"ACL: %s->%s",db_acl,acl_str);
+				if (opts&D_DEV && db_dev != st.st_dev) join(&cbuf,"Device: %d->%d",db_dev,st.st_dev);
 
 				if (cbuf != 0) 
 					printf("CHANGED: %s (%s)\n",fullpath,cbuf);
